@@ -1,0 +1,9 @@
+# Copy per isolated Hermes company profile; replace placeholders before activation.
+memory:
+  provider: hindsight
+  hindsight:
+    company_id: REPLACE_WITH_COMPANY_SLUG
+    bank_id: REPLACE_WITH_DEDICATED_HINDSIGHT_BANK_ID
+    base_url: http://127.0.0.1:8888
+    max_tokens: 900
+    timeout_seconds: 5

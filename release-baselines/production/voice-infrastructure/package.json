@@ -1,0 +1,25 @@
+{
+  "name": "agentsfer-voice-infrastructure",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node src/agent.mjs dev",
+    "start": "node src/agent.mjs start",
+    "test": "node --test",
+    "check:gemini-live": "node tests/gemini-live-handshake.mjs"
+  },
+  "dependencies": {
+    "@google/genai": "2.28.0",
+    "@livekit/agents": "1.9.2",
+    "@livekit/agents-plugin-google": "1.9.2",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "prayer-times-mcp": "1.0.1",
+    "zod": "4.6.5"
+  },
+  "overrides": {
+    "@livekit/agents": {
+      "sharp": "0.35.5"
+    }
+  }
+}

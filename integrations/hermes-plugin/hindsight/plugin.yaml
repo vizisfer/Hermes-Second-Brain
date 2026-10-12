@@ -1,0 +1,3 @@
+name: hindsight
+version: 0.1.0
+description: "Company-scoped Hindsight memory provider for Hermes Agent."

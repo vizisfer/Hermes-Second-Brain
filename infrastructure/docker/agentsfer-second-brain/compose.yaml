@@ -1,0 +1,68 @@
+name: agentsfer-second-brain
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18-bookworm@sha256:ad249f9fb9572979643a47694e59b9a8cdcdf6abc6accebf49bb80ad5f20ff9b
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in the project .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in the project .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the project .env}
+      HINDSIGHT_DB_USER: ${HINDSIGHT_DB_USER:?Set HINDSIGHT_DB_USER in the project .env}
+      HINDSIGHT_DB_PASSWORD: ${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in the project .env}
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - type: bind
+        source: ./data/postgres
+        target: /var/lib/postgresql
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./postgres/init
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:0.10.3@sha256:5b6ef2b892703f0e82c448786349c88db60f06d8c9190432b68af00ce6dc45e3
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HINDSIGHT_API_DATABASE_URL: ${HINDSIGHT_API_DATABASE_URL:?Set HINDSIGHT_API_DATABASE_URL in the project .env}
+      HINDSIGHT_API_LLM_PROVIDER: openrouter
+      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_API_LLM_API_KEY:?Set HINDSIGHT_API_LLM_API_KEY in the project .env}
+      HINDSIGHT_API_LLM_MODEL: deepseek/deepseek-v4-flash-0731
+      HINDSIGHT_API_HOST: 0.0.0.0
+      HINDSIGHT_API_PORT: "8888"
+    ports:
+      - target: 8888
+        published: "${HINDSIGHT_HOST_PORT:-8888}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8888/health', timeout=5).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  backend:
+    driver: bridge

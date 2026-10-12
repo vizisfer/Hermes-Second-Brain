@@ -1,0 +1,9 @@
+# Target architecture and implemented candidate
+
+The isolated candidate implements this flow; it is not deployed. The implementation is split into a strict JSON server registry, official MCP SDK client manager, tool/schema discovery, explicit policy/allowlist, authenticated HTTP API, and an opt-in Sage adapter.
+
+Path: Sage voice tool → existing Secure Tool Broker → authenticated Bridge `GET /mcp/tools` / `POST /mcp/call` → configured MCP server. Sage reads `SAGE_MCP_TOOLS`, `HERMES_GATEWAY_URL`, and `HERMES_GATEWAY_TOKEN`; its catalog is limited to six static read-only IDs. Never commit token values. The model cannot supply an arbitrary URL, executable, server, or permission.
+
+The Broker remains the Sage execution/validation/audit seam. Current Sage resolution creates an explicit service principal with no tenant; room name is not identity. The Broker schema distinguishes service and user principals and denies tenant-bound capabilities to the current service principal. The Bridge Bearer token authenticates the worker-to-Bridge request, not an end user. Add a trusted identity source and resource-level authorization before offering tenant/private or sensitive tools.
+
+Gateway policy: startup config is local JSON; enabled/allowlisted tools are namespaced `server__tool`; transports are stdio and Streamable HTTP. Read-only calls use the main token; sensitive-read requires an additional distinct token and is hidden by default; write/destructive are unconditionally denied. DNS pinning and output limits are implemented and unit-tested, but production TLS termination, egress, service identity, and deployment procedure remain unverified. See [README](README.md) and [SECURITY.md](SECURITY.md).
