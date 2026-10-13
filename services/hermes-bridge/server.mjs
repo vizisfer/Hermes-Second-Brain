@@ -5,11 +5,13 @@ import { isIP } from 'node:net';
 import { getPrayerTimesDirect } from './aladhan-direct.mjs';
 import { McpGateway, loadMcpConfig } from './mcp-gateway.mjs';
 import { createDocumentTestHandler } from './documents-test-route.mjs';
+import { createPhoneDocumentsHandler } from './phone-documents-route.mjs';
 
 const documentTest = createDocumentTestHandler({
   keyFile: process.env.DOCUMENTS_TEST_CAPABILITY_KEY_FILE,
   replayDir: process.env.DOCUMENTS_TEST_REPLAY_DIR,
 });
+const phoneDocumentTest = createPhoneDocumentsHandler();
 
 const portText = process.env.PORT?.trim();
 const PORT = portText ? Number(portText) : 8787;
@@ -81,13 +83,14 @@ const server = createServer(async (req, res) => {
 
   const mcpRoute = ['/mcp/health', '/mcp/tools', '/mcp/call'].includes(req.url);
   const privateRoute = req.url === '/agent/documents-test';
-  if ((!mcpRoute && (req.method !== 'POST' || !['/prayer-times', '/agent/task', '/prayer-times/direct-test', '/agent/documents-test'].includes(req.url)))
+  const privatePhoneRoute = req.url === '/agent/documents-phone';
+  if ((!mcpRoute && (req.method !== 'POST' || !['/prayer-times', '/agent/task', '/prayer-times/direct-test', '/agent/documents-test', '/agent/documents-phone'].includes(req.url)))
     || (mcpRoute && !((req.method === 'GET' && req.url !== '/mcp/call') || (req.method === 'POST' && req.url === '/mcp/call')))) {
     res.writeHead(404).end(JSON.stringify({ error: 'not_found' }));
     return;
   }
 
-  if ((mcpRoute || privateRoute) && mcpRateLimited(req)) {
+  if ((mcpRoute || privateRoute || privatePhoneRoute) && mcpRateLimited(req)) {
     res.writeHead(429).end(JSON.stringify({ error: 'rate_limited' }));
     return;
   }
@@ -127,6 +130,20 @@ const server = createServer(async (req, res) => {
       req.removeListener('aborted', onAborted); res.removeListener('close', onClosed);
       if (!res.destroyed) res.writeHead(result.status).end(JSON.stringify(result.body));
       log('finished', result.status);
+      return;
+    }
+
+    if (privatePhoneRoute) {
+      const suppliedId = req.headers['x-document-test-request-id'];
+      const requestId = typeof suppliedId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(suppliedId) ? suppliedId : randomUUID();
+      const controller = new AbortController();
+      const onAborted = () => { if (!controller.signal.aborted) controller.abort(); };
+      const onClosed = () => { if (!res.writableEnded && !controller.signal.aborted) controller.abort(); };
+      req.once('aborted', onAborted);
+      res.once('close', onClosed);
+      const result = await phoneDocumentTest({ payload, grant: req.headers['x-agentsfer-hindsight-test'], signal: controller.signal, requestId });
+      req.removeListener('aborted', onAborted); res.removeListener('close', onClosed);
+      if (!res.destroyed) res.writeHead(result.status).end(JSON.stringify(result.body));
       return;
     }
 
