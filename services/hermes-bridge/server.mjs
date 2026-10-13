@@ -1,9 +1,15 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import { getPrayerTimesDirect } from './aladhan-direct.mjs';
 import { McpGateway, loadMcpConfig } from './mcp-gateway.mjs';
+import { createDocumentTestHandler } from './documents-test-route.mjs';
+
+const documentTest = createDocumentTestHandler({
+  keyFile: process.env.DOCUMENTS_TEST_CAPABILITY_KEY_FILE,
+  replayDir: process.env.DOCUMENTS_TEST_REPLAY_DIR,
+});
 
 const portText = process.env.PORT?.trim();
 const PORT = portText ? Number(portText) : 8787;
@@ -74,13 +80,14 @@ const server = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
 
   const mcpRoute = ['/mcp/health', '/mcp/tools', '/mcp/call'].includes(req.url);
-  if ((!mcpRoute && (req.method !== 'POST' || !['/prayer-times', '/agent/task', '/prayer-times/direct-test'].includes(req.url)))
+  const privateRoute = req.url === '/agent/documents-test';
+  if ((!mcpRoute && (req.method !== 'POST' || !['/prayer-times', '/agent/task', '/prayer-times/direct-test', '/agent/documents-test'].includes(req.url)))
     || (mcpRoute && !((req.method === 'GET' && req.url !== '/mcp/call') || (req.method === 'POST' && req.url === '/mcp/call')))) {
     res.writeHead(404).end(JSON.stringify({ error: 'not_found' }));
     return;
   }
 
-  if (mcpRoute && mcpRateLimited(req)) {
+  if ((mcpRoute || privateRoute) && mcpRateLimited(req)) {
     res.writeHead(429).end(JSON.stringify({ error: 'rate_limited' }));
     return;
   }
@@ -104,6 +111,24 @@ const server = createServer(async (req, res) => {
     }
 
     const payload = req.method === 'GET' ? {} : JSON.parse(body);
+
+    if (privateRoute) {
+      const suppliedId = req.headers['x-document-test-request-id'];
+      const requestId = typeof suppliedId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(suppliedId) ? suppliedId : randomUUID();
+      const started = performance.now();
+      const log = (phase, status) => console.info(JSON.stringify({ event: 'document_test_request', requestId, phase, ...(status === undefined ? {} : { status }), durationMs: Math.round(performance.now() - started) }));
+      log('received');
+      const controller = new AbortController();
+      const onAborted = () => { log('request_aborted'); if (!controller.signal.aborted) controller.abort(); };
+      const onClosed = () => { log('response_closed'); if (!res.writableEnded && !controller.signal.aborted) controller.abort(); };
+      req.once('aborted', onAborted);
+      res.once('close', onClosed);
+      const result = await documentTest({ payload, capability: req.headers['x-document-test-capability'], signal: controller.signal, requestId });
+      req.removeListener('aborted', onAborted); res.removeListener('close', onClosed);
+      if (!res.destroyed) res.writeHead(result.status).end(JSON.stringify(result.body));
+      log('finished', result.status);
+      return;
+    }
 
     if (req.url === '/mcp/health' && req.method === 'GET') {
       res.writeHead(200).end(JSON.stringify(mcpGateway.health()));
@@ -156,6 +181,10 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.url === '/agent/task') {
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => key !== 'task')) {
+        res.writeHead(400).end(JSON.stringify({ error: 'invalid_task' }));
+        return;
+      }
       const { task } = payload;
 
       if (typeof task !== 'string' || task.trim().length === 0 || task.length > 1000) {

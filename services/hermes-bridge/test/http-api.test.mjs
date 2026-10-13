@@ -32,6 +32,9 @@ test('authenticated MCP HTTP routes work and existing Bridge routes remain reach
     await ready;
     assert.equal((await fetch(`${address}/mcp/health`)).status, 401);
     const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    assert.equal((await fetch(`${address}/agent/documents-test`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 401);
+    assert.equal((await fetch(`${address}/agent/documents-test`, { method: 'POST', headers, body: '{}' })).status, 403);
+    assert.equal((await fetch(`${address}/agent/task`, { method: 'POST', headers, body: JSON.stringify({ task: 'document question', profile: 'agentsfer-second-brain' }) })).status, 400);
     const sensitiveHeaders = { ...headers, 'x-mcp-sensitive-read': sensitiveToken };
     const health = await fetch(`${address}/mcp/health`, { headers });
     assert.equal(health.status, 200);
